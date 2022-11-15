@@ -135,6 +135,7 @@ class Runner(ABC):
 
             # Run test episodes
             if self._run_testing:
+                # print (" In the run testing phase")
                 test_metrics = self.run_testing()
                 self._logger.update_step("test")
                 self._logger.log_metrics(test_metrics, "test")
@@ -153,6 +154,7 @@ class Runner(ABC):
 
     def run_testing(self):
         """Run a testing phase."""
+        print (" In the run testing phase olfd one ")
         self.train_mode(False)
         aggregated_episode_metrics = self.create_episode_metrics().get_flat_dict()
         for _ in range(self._test_episodes):

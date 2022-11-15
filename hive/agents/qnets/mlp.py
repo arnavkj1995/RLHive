@@ -48,7 +48,10 @@ class MLPNetwork(nn.Module):
             modules.append(activation_fn())
         self.network = torch.nn.Sequential(*modules)
 
-    def forward(self, x):
-        x = x.float()
-        x = torch.flatten(x, start_dim=1)
+    def forward(self, x, flatten_dim=None):
+        # x = x.float()
+
+        # FIXME: How to take care of flatten?- Right now using the hack discussed with Darshan
+        if flatten_dim:
+            x = torch.flatten(x, start_dim=flatten_dim)
         return self.network(x)

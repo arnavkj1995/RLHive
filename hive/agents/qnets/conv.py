@@ -4,7 +4,6 @@ from torch import nn
 from hive.agents.qnets.mlp import MLPNetwork
 from hive.agents.qnets.utils import calculate_output_dim
 
-
 class ConvNetwork(nn.Module):
     """
     Basic convolutional neural network architecture. Applies a number of
@@ -66,6 +65,7 @@ class ConvNetwork(nn.Module):
                 raise ValueError("The lengths of the parameter lists must be the same")
 
             # Convolutional Layers
+            # FIXME: What would be the best way to add NormLayer here?
             channels.insert(0, in_dim[0])
             conv_seq = []
             for i in range(0, len(channels) - 1):

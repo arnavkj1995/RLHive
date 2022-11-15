@@ -312,6 +312,16 @@ class WandbLogger(ScheduledLogger):
             }
         )
         wandb.log(metrics)
+    
+    def log_image(self, name, value, prefix):
+        metrics = {f"{prefix}/{name}": wandb.Image(value)}
+        metrics.update(
+            {
+                f"{timescale}_step": self._steps[timescale]
+                for timescale in self._timescales
+            }
+        )
+        wandb.log(metrics)
 
     def log_metrics(self, metrics, prefix):
         metrics = {f"{prefix}/{name}": value for (name, value) in metrics.items()}
