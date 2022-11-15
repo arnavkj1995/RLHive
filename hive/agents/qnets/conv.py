@@ -65,8 +65,12 @@ class ConvNetwork(nn.Module):
                 raise ValueError("The lengths of the parameter lists must be the same")
 
             # Convolutional Layers
+<<<<<<< HEAD
             # FIXME: What would be the best way to add NormLayer here?
             channels.insert(0, in_dim[0])
+=======
+            channels = [in_dim[0], *channels]
+>>>>>>> upstream/stateless_agent
             conv_seq = []
             for i in range(0, len(channels) - 1):
                 conv_seq.append(

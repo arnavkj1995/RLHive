@@ -35,7 +35,7 @@ class LegalMovesRainbowAgent(RainbowDQNAgent):
         )
 
     @torch.no_grad()
-    def act(self, observation):
+    def act(self, observation, state=None):
         if self._training:
             if not self._learn_schedule.get_value():
                 epsilon = 1.0
@@ -60,19 +60,19 @@ class LegalMovesRainbowAgent(RainbowDQNAgent):
         qvals = self._qnet(vectorized_observation, encoded_legal_moves).cpu()
 
         if self._rng.random() < epsilon:
-            action = np.random.choice(legal_moves_as_int).item()
+            action = self._rng.choice(legal_moves_as_int)
         else:
             action = torch.argmax(qvals).item()
 
         if (
             self._training
             and self._logger.should_log(self._timescale)
-            and self._state["episode_start"]
+            and state is None
         ):
             self._logger.log_scalar("train_qval", torch.max(qvals), self._timescale)
-            self._state["episode_start"] = False
+            state = {}
 
-        return action
+        return action, state
 
 
 class LegalMovesHead(torch.nn.Module):

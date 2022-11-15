@@ -4,7 +4,6 @@ import os
 import gym
 import numpy as np
 import torch
-from torch.nn.functional import mse_loss
 
 from hive.agents.agent import Agent
 from hive.agents.qnets.base import FunctionApproximator
@@ -128,6 +127,8 @@ class TD3(Agent):
         self._action_max = self._action_space.high
         self._action_scaling = 0.5 * (self._action_max - self._action_min)
         self._scale_actions = np.isfinite(self._action_scaling).all()
+        self._action_min_tensor = torch.as_tensor(self._action_min, device=self._device)
+        self._action_max_tensor = torch.as_tensor(self._action_max, device=self._device)
         self._init_fn = create_init_weights_fn(init_fn)
         self._n_critics = n_critics
         self.create_networks(representation_net, actor_net, critic_net)
@@ -152,7 +153,7 @@ class TD3(Agent):
         self._soft_update_fraction = soft_update_fraction
         if critic_loss_fn is None:
             critic_loss_fn = torch.nn.MSELoss
-        self._critic_loss_fn = critic_loss_fn(reduction="none")
+        self._critic_loss_fn = critic_loss_fn(reduction="mean")
         self._batch_size = batch_size
         self._logger = logger
         if self._logger is None:
@@ -277,7 +278,7 @@ class TD3(Agent):
         return (batch["observation"],), (batch["next_observation"],), batch
 
     @torch.no_grad()
-    def act(self, observation):
+    def act(self, observation, state=None):
         """Returns the action for the agent. If in training mode, adds noise with
         standard deviation :py:obj:`self._action_noise`.
 
@@ -295,11 +296,11 @@ class TD3(Agent):
             action = action + noise
         action = action.cpu().detach().numpy()
         if self._scale_actions:
-            action = self.unscale_actions(np.expand_dims(action, axis=0))
-            action = np.clip(action, self._action_min, self._action_max)
-        return action
+            action = self.unscale_actions(action)
+        action = np.clip(action, self._action_min, self._action_max)
+        return np.squeeze(action, axis=0), state
 
-    def update(self, update_info):
+    def update(self, update_info, state=None):
         """
         Updates the TD3 agent.
 
@@ -332,9 +333,14 @@ class TD3(Agent):
                 noise = torch.clamp(
                     noise, -self._target_noise_clip, self._target_noise_clip
                 )
-                next_actions = torch.clamp(
-                    self._target_actor(*next_state_inputs) + noise, -1, 1
-                )
+                next_actions = self._target_actor(*next_state_inputs) + noise
+                if self._scale_actions:
+                    next_actions = torch.clamp(next_actions, -1, 1)
+                else:
+                    next_actions = torch.clamp(
+                        next_actions, self._action_min_tensor, self._action_max_tensor
+                    )
+
                 next_q_vals = torch.cat(
                     self._target_critic(*next_state_inputs, next_actions), dim=1
                 )
@@ -347,7 +353,7 @@ class TD3(Agent):
             # Critic losses
             pred_qvals = self._critic(*current_state_inputs, batch["action"])
             critic_loss = sum(
-                [mse_loss(qvals, target_q_values) for qvals in pred_qvals]
+                [self._critic_loss_fn(qvals, target_q_values) for qvals in pred_qvals]
             )
             self._critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -376,6 +382,7 @@ class TD3(Agent):
                 self._update_target()
                 if self._logger.should_log(self._timescale):
                     self._logger.log_scalar("actor_loss", actor_loss, self._timescale)
+        return state
 
     def _update_target(self):
         """Update the target network."""
