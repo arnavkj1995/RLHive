@@ -54,13 +54,15 @@ class GymEnv(BaseEnv):
         )
 
     def reset(self):
-        observation = self._env.reset()
+        # FIXME: Hack for Minigrid
+        observation, _ = self._env.reset()
         return observation, self._turn
 
     def step(self, action):
-        observation, reward, done, info = self._env.step(action)
+        # FIXME: Hack for Minigrid
+        observation, reward, done1, done2, info = self._env.step(action)
         self._turn = (self._turn + 1) % self._num_players
-        return observation, reward, done, self._turn, info
+        return observation, reward, done1 or done2, self._turn, info
 
     def render(self, mode="rgb_array"):
         return self._env.render(mode=mode)

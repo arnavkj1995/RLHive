@@ -9,7 +9,6 @@ from hive.utils import utils
 from hive.utils.experiment import Experiment
 from hive.utils.loggers import CompositeLogger, NullLogger, ScheduledLogger
 
-
 class SingleAgentRunner(Runner):
     """Runner class used to implement a sinle-agent training loop."""
 
@@ -54,6 +53,7 @@ class SingleAgentRunner(Runner):
             utils.seeder.set_global_seed(seed)
         if eval_environment is None:
             eval_environment = environment
+
         environment = environment()
         eval_environment = eval_environment() if test_frequency != -1 else None
         env_spec = environment.env_spec

@@ -11,13 +11,9 @@ registry.register_all(
     {
         "CircularReplayBuffer": CircularReplayBuffer,
         "LegalMovesBuffer": LegalMovesBuffer,
-<<<<<<< HEAD
-        "RecurrentReplayBuffer": RecurrentReplayBuffer
-=======
         "PrioritizedReplayBuffer": PrioritizedReplayBuffer,
         "RecurrentReplayBuffer": RecurrentReplayBuffer,
         "SimpleReplayBuffer": SimpleReplayBuffer,
->>>>>>> upstream/stateless_agent
     },
 )
 

@@ -1,3 +1,4 @@
+from gym.utils import seeding
 import gym_minigrid
 from gym_minigrid.wrappers import (
     FlatObsWrapper,
@@ -53,6 +54,10 @@ class MiniGridEnv(GymEnv):
         elif flattened_obs:
             # Encode the mission into observation vector
             self._env = FlatObsWrapper(self._env)
+
+    def seed(self, seed=None):
+        self._np_random, seed = seeding.np_random(seed)
+        return [seed]
 
     def render(self, mode="rgb_array"):
         # TODO

@@ -12,6 +12,7 @@ from hive.agents.qnets.dists import DistLayer
 registry.register_all(
     FunctionApproximator,
     {
+        "MLPNetwork": MLPNetwork,
         "ConvNetwork": ConvNetwork,
         "DeconvNetwork": DeconvNetwork,
         "NatureAtariDQNModel": NatureAtariDQNModel,

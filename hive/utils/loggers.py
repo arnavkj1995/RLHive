@@ -322,6 +322,16 @@ class WandbLogger(ScheduledLogger):
             }
         )
         wandb.log(metrics)
+    
+    def log_gif(self, name, value, prefix):
+        metrics = {f"{prefix}/{name}": wandb.Video(value, fps=4, format="gif")}
+        metrics.update(
+            {
+                f"{timescale}_step": self._steps[timescale]
+                for timescale in self._timescales
+            }
+        )
+        wandb.log(metrics)
 
     def log_metrics(self, metrics, prefix):
         metrics = {f"{prefix}/{name}": value for (name, value) in metrics.items()}
@@ -370,6 +380,11 @@ class ChompLogger(ScheduledLogger):
             self._log_data[metric_name][1].append(
                 {timescale: self._steps[timescale] for timescale in self._timescales}
             )
+    def log_image(self, name, value, prefix):
+        pass
+
+    def log_gif(self, name, value, prefix):
+        pass
 
     def save(self, dir_name):
         super().save(dir_name)
@@ -408,6 +423,14 @@ class CompositeLogger(Logger):
     def log_scalar(self, name, value, prefix):
         for logger in self._logger_list:
             logger.log_scalar(name, value, prefix)
+    
+    def log_image(self, name, value, prefix):
+        for logger in self._logger_list:
+            logger.log_image(name, value, prefix)
+    
+    def log_gif(self, name, value, prefix):
+        for logger in self._logger_list:
+            logger.log_gif(name, value, prefix)
 
     def log_metrics(self, metrics, prefix):
         for logger in self._logger_list:

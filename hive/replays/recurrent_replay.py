@@ -289,6 +289,7 @@ class RecurrentReplayBuffer(BaseReplayBuffer):
                 if len(sequence['action']) < 1:
                     sequence = self._sample_sequence()
             chunk = {k: np.concatenate(v) for k, v in chunk.items()}
+
             return chunk
 
     def sample(self, batch_size, length):
