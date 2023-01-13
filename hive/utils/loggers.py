@@ -244,6 +244,7 @@ class WandbLogger(ScheduledLogger):
         id=None,
         resume=None,
         start_method=None,
+        group=None,
         **kwargs,
     ):
         """
@@ -285,6 +286,7 @@ class WandbLogger(ScheduledLogger):
         wandb.init(
             project=project,
             name=name,
+            group=group,
             dir=dir,
             mode=mode,
             id=id,
