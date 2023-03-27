@@ -1,0 +1,46 @@
+run_name: &run_name 'dreamerv2'
+train_steps: 2000000
+test_frequency: 5000
+test_episodes: 10
+max_steps_per_episode: 1000000
+stack_size: &stack_size 1
+save_dir: '~/scratch/hive/experiment'
+environment:
+  name: 'GymEnv'
+  kwargs:
+    env_name: 'Hopper-v2'
+    
+agent:
+  name: 'Dreamer'
+  kwargs:
+    actor_net:
+      name: 'MLPNetwork'
+      kwargs: 
+        hidden_units: [256, 256]
+    critic_net:
+      name: 'MLPNetwork'
+      kwargs: 
+        hidden_units: [256, 256]
+    replay_buffer:
+      name: 'RecurrentReplayBuffer'
+      kwargs:
+        capacity: 1000000
+    actor_optimizer_fn:
+      name: 'Adam'
+      kwargs:
+        lr: .0003
+    critic_optimizer_fn:
+      name: 'Adam'
+      kwargs:
+        lr: .0003
+    discount_rate: .99
+    grad_clip: .5
+    soft_update_fraction: .005
+    batch_size: 256
+    update_frequency: 1
+    action_noise: .1
+    target_noise: .2
+    target_noise_clip: .5
+    min_replay_history: 25000
+    device: 'cuda'
+    id: 'agent'

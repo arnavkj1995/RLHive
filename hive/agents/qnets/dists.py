@@ -200,6 +200,7 @@ class DistLayer(nn.Module):
     if hasattr(self, '_std_net'):
       std = self._std_net(inputs)
       std = torch.reshape(std, list(inputs.shape[:-1]) + self._shape)
+    
     # FIXME: Fix the shapes later
     if self._dist == 'mse':
       dist = td.Normal(out, torch.ones_like(out))
@@ -217,7 +218,8 @@ class DistLayer(nn.Module):
     if self._dist == 'trunc_normal':
       std = 2 * nn.functional.sigmoid((std + self._init_std) / 2) + self._min_std
       dist = TruncNormalDist(nn.functional.tanh(out), std, -1, 1)
-      return dist #td.independent.Independent(dist, 1)
+      return td.independent.Independent(dist, 1)
     if self._dist == 'onehot':
       return td.OneHotCategoricalStraightThrough(logits=out)
+    
     raise NotImplementedError(self._dist)

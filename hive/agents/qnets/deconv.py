@@ -69,7 +69,7 @@ class DeconvNetwork(nn.Module):
             # Convolutional Layers
             # FIXME: What would be the best way to add NormLayer here?
 
-            channels.insert(0, 2 * channels[0])
+            channels.insert(0, 32 * 48)
 
             self.convin = torch.nn.Linear(in_dim, channels[0])
             conv_seq = []
@@ -83,7 +83,8 @@ class DeconvNetwork(nn.Module):
                         padding=paddings[i],
                     )
                 )
-                conv_seq.append(torch.nn.ReLU())
+                if i != len(channels) - 2:
+                    conv_seq.append(torch.nn.ELU())
             self.conv = torch.nn.Sequential(*conv_seq)
         else:
             self.conv = torch.nn.Identity()
@@ -109,9 +110,8 @@ class DeconvNetwork(nn.Module):
         #     x = x.unsqueeze(0)
         # elif len(x.shape) == 5:
         #     x = x.reshape(x.size(0), -1, x.size(-2), x.size(-1))
-        x = x.float()
-        x = x / self._normalization_factor
+        
         x = self.conv(x)
-        x = self.mlp(x)
+        # x = self.mlp(x)
         x = x.view(inputs.shape[0], inputs.shape[1], *x.shape[1:])
         return x

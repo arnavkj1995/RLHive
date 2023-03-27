@@ -74,7 +74,10 @@ class Dreamer(Agent):
         logger: Logger = None,
         expl_behavior: str = 'random',
         expl_noise: float = 0.0,
+        eval_noise: float = 0.0,
+        eval_state_mean: float = 0.0,
         log_frequency: int = 100,
+        vid_log_frequency: int = 2000,
         min_replay_history: int = 0,
         # update_frequency: int = 1,
         # policy_update_frequency: int = 2,
@@ -170,10 +173,15 @@ class Dreamer(Agent):
 
         self._wm = wm(observation_space, self._action_dim, device).to(self._device) #WorldModel(config, observation_space, self.tfstep)
         # FIXME: Define the ActorCritic network at the top
-        feat_dim = self._wm.rssm._deter + self._wm.rssm._stoch
+        if self._wm.rssm._discrete:
+            feat_dim = self._wm.rssm._deter + self._wm.rssm._stoch * self._wm.rssm._discrete
+        else:
+            feat_dim = self._wm.rssm._deter + self._wm.rssm._stoch
         self._task_behavior = policy(self._action_dim, feat_dim, discrete).to(self._device)
         
         self._expl_noise = expl_noise
+        self._eval_noise = eval_noise
+        self._eval_state_mean = eval_state_mean
         if expl_behavior == 'greedy':
             self._expl_behavior = self._task_behavior
         else:
@@ -200,7 +208,11 @@ class Dreamer(Agent):
             self._timescale, PeriodicSchedule(False, True, log_frequency)
         )
 
+        # print (self._action_space.low, self._action_space.high)
+        # self.random_actor = td.uniform.Uniform(self._action_space.low, self._action_space.high)
+
         self._update_period_schedule = PeriodicSchedule(False, True, train_every)
+        self._vidlog_schedule = PeriodicSchedule(False, True, vid_log_frequency)
         self._learn_schedule = SwitchSchedule(False, True, min_replay_history)
 
     def train(self):
@@ -269,12 +281,14 @@ class Dreamer(Agent):
         # obs = tf.nest.map_structure(tf.tensor, obs)
         # tf.py_function(lambda: self.tfstep.assign(
         #     int(self.step), read_value=False), [], [])
-        outputs, state = self.act_imagine(torch.tensor([observation]).type(torch.uint8), state, 'train')
-    
-        # FIXME: Check what to do for discrete actions
-        return outputs["action"][0].cpu().numpy(), state
+        
+        if self._learn_schedule.get_value():
+            outputs, state = self.act_imagine(torch.tensor([observation]), state)
+            return outputs["action"][0].cpu().numpy(), state
 
-    def act_imagine(self, observation, state=None, mode=train):
+        return np.random.uniform(-1, 1, size=self._action_space.shape), state        
+
+    def act_imagine(self, observation, state=None):
         """Returns the action for the agent. If in training mode, adds noise with
         standard deviation :py:obj:`self._action_noise`.
 
@@ -294,22 +308,23 @@ class Dreamer(Agent):
         latent, action = state
         batch = self._wm.preprocess(batch)
         embed = self._wm.encoder(batch["observation"])
-
+        
         # FIXME: Add the reshape part later
         shape = list(embed.shape[:-3]) + [-1]
         embed = embed.view(shape)      
         
         # FIXME: Fix the mode issue pytorch
-        sample = True# (mode == 'train') #or not self.config.eval_state_mean
+        sample = self._training or not self._eval_state_mean
         latent, _ = self._wm.rssm.obs_step(
             latent, action, embed, batch['is_first'], sample)
         feat = self._wm.rssm.get_feat(latent)
 
-        if mode == 'eval':
+        if not self._training:
             actor = self._task_behavior.actor(feat)
-            action = actor.mode()
-            noise = self.config.eval_noise
-        elif mode == 'train':
+            action = actor.mean
+            noise = self._eval_noise
+        else:
+            # print (" Before actor ", feat.shape)
             actor = self._task_behavior.actor(feat)
             action = actor.rsample()
             noise = self._expl_noise
@@ -337,46 +352,41 @@ class Dreamer(Agent):
                 "observation", "action", "reward", and "done".
         """
         
-        import time
-        start_time = time.time()
                 
         # Add the most recent transition to the replay buffer.
         self._replay_buffer.add(**self.preprocess_update_info(update_info))
 
         if self._learn_schedule.update() and self._update_period_schedule.update():
-            # FIXME: Hardcoded values
-            import time
-            start_time = time.time()
             batch = self.preprocess_update_batch(self._replay_buffer.sample(self._batch_size, self._batch_length))
 
-            # self.save_gif(batch['observation'][0].cpu().numpy())
             batch["reward"] = batch["reward"].unsqueeze(-1)
             batch["done"] = batch["done"].unsqueeze(-1)
-            
+
             metrics = {}
             # FIXME: Check what the state should be here
             state, outputs, mets = self._wm.update(batch, None) #state)
             metrics.update(mets)
-            
+
             start = outputs['post']
-            
-            reward = lambda seq: self._wm.heads['reward'](seq['feat']).mode #, flatten=False) #.get_mode()
-            # metrics.update(self._task_behavior.update(
-            #     self._wm, start, batch['is_terminal'], reward))
-            
+            reward = lambda seq: self._wm.heads['reward'](seq['feat']).mean #, flatten=False) #.get_mode()
+
             # FIXME: Set the is_terminal flag here
             is_terminal = False
             metrics.update(self._task_behavior.update(
                 self._wm, start, is_terminal, reward))
 
-            if self._logger.update_step(self._timescale):      
+            if self._logger.update_step(self._timescale):        
                 self._logger.log_metrics(metrics, self._timescale)
-                print (self._timescale, metrics)
+
+            if self._vidlog_schedule.update():
+                data = self._wm.preprocess(batch)
+                vid = self._wm.video_pred(data, 'observation') #, (0, 2, 3, 1))
+                vid = np.clip(255 * vid, 0, 255).astype(np.uint8)
+                self._logger.log_gif('WM', vid , self._timescale)
 
             # if self.config.expl_behavior != 'greedy':
             #     mets = self._expl_behavior.train(start, outputs, data)[-1]
             #     metrics.update({'expl_' + key: value for key, value in mets.items()})
-            
 
     def save(self, dname):
         pass

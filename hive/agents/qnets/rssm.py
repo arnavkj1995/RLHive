@@ -14,7 +14,7 @@ class RSSM(nn.Module):
   def __init__(
       self, num_actions, device, stoch=30, deter=200, hidden=200, 
       embed=1024, discrete=False, act='elu', norm='none', 
-      std_act='softplus', min_std=0.1):
+      std_act='sigmoid2', min_std=0.1):
     super().__init__()
     self._device = torch.device("cpu" if not torch.cuda.is_available() else device)
 
@@ -41,7 +41,10 @@ class RSSM(nn.Module):
       and embed it to deter size for rnn input
       """
       # FIXME: get substitute for action size
-      layers = [nn.Linear(self._stoch + self._num_actions, self._deter)]
+      if self._discrete:
+        layers = [nn.Linear(self._stoch * self._discrete + self._num_actions, self._deter)]
+      else:
+        layers = [nn.Linear(self._stoch + self._num_actions, self._deter)]
       if self._norm == 'layer':
         layers += [nn.LayerNorm(self._hidden)]
       layers += [self._act()]
@@ -60,9 +63,9 @@ class RSSM(nn.Module):
         layers += [nn.LayerNorm(self._hidden)]
       layers += [self._act()]
       if self._discrete:
-          layers += [nn.Linear(self._hidden, self._stoch)]
+        layers += [nn.Linear(self._hidden, self._stoch * self._discrete)]
       else:
-          layers += [nn.Linear(self._hidden, 2 * self._stoch)]
+        layers += [nn.Linear(self._hidden, 2 * self._stoch)]
 
       return nn.Sequential(*layers)
 
@@ -85,7 +88,7 @@ class RSSM(nn.Module):
 
     return state
 
-  # FIXME: Add the 'For' loop for observe abd imagine functions
+  # FIXME: Add the 'For' loop for observe and imagine functions
   def observe(self, embed, action, is_first, state=None):
     swap = lambda x: x.permute([1, 0] + list(range(2, len(x.shape))))
     if state is None:
@@ -121,7 +124,7 @@ class RSSM(nn.Module):
 
   # @tf.function
   def imagine(self, action, state=None):
-    swap = lambda x: torch.permute(x, [1, 0] + list(range(2, len(x.shape))))
+    swap = lambda x: x.permute([1, 0] + list(range(2, len(x.shape))))
     if state is None:
       state = self.initial(action.size(dim=0))
 
@@ -145,9 +148,9 @@ class RSSM(nn.Module):
   def get_feat(self, state):
     stoch = state['stoch']
     if self._discrete:
-      shape = stoch.shape[:-2] + [self._stoch * self._discrete]
-      stoch = torch.view(stoch, shape)
-    return torch.cat([stoch, state['deter']], -1)
+      shape = list(stoch.shape[:-2]) + [self._stoch * self._discrete]
+      stoch = stoch.view(shape)
+    return torch.cat([state['deter'], stoch], -1)
 
   def get_dist(self, state):
     if self._discrete:
@@ -179,13 +182,14 @@ class RSSM(nn.Module):
     # prev_action = self._cast(prev_action)
     prev_stoch = prev_state['stoch']
     if self._discrete:
-      shape = prev_stoch.shape[:-2] + [self._stoch * self._discrete]
+      shape = list(prev_stoch.shape[:-2]) + [self._stoch * self._discrete]
       prev_stoch = torch.reshape(prev_stoch, shape)
     x = torch.cat([prev_stoch, prev_action], -1)
+    # print (x.shape)
     x = self._embed_state_action(x)
     deter = prev_state['deter']
     # FIXME: remove the GRU, worst hack till date :P
-    x = deter
+    # x = deter
     x, deter = self._cell(x, [deter])
     deter = deter[0]  # Keras wraps the state in a list.
     
@@ -199,7 +203,7 @@ class RSSM(nn.Module):
 
   def _suff_stats_layer(self, x):
     if self._discrete:
-      logit = torch.view(x, x.shape[:-1] + [self._stoch, self._discrete])
+      logit = x.view(list(x.shape[:-1]) + [self._stoch, self._discrete])
       return {'logit': logit}
     else:
       mean, std = torch.chunk(x, 2, dim=-1)
@@ -217,15 +221,16 @@ class RSSM(nn.Module):
     # sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
     lhs, rhs = (prior, post) if forward else (post, prior)
     mix = balance if forward else (1 - balance)
+    # FIXME: Adding .sum(axis=-1) to account for independedent axis
     if balance == 0.5:
-      value = kld(self.get_dist(lhs), self.get_dist(rhs))
+      value = kld(self.get_dist(lhs), self.get_dist(rhs)).sum(axis=-1)
       loss = torch.max(value, free).mean()
     else:
-      value_lhs = value = kld(self.get_dist(lhs), self.get_dist({x: rhs[x].detach() for x in rhs}))
-      value_rhs = kld(self.get_dist({x: lhs[x].detach() for x in lhs}), self.get_dist(rhs))
+      value_lhs = value = kld(self.get_dist(lhs), self.get_dist({x: rhs[x].detach() for x in rhs})).sum(axis=-1)
+      value_rhs = kld(self.get_dist({x: lhs[x].detach() for x in lhs}), self.get_dist(rhs)).sum(axis=-1)
       if free_avg:
-        loss_lhs = torch.max(value_lhs.mean(), free)
-        loss_rhs = torch.max(value_rhs.mean(), free)
+        loss_lhs = torch.clamp(value_lhs.mean(), min=torch.tensor(free))
+        loss_rhs = torch.clamp(value_rhs.mean(), min=torch.tensor(free))
       else:
         # FIXME: Check if the CLIP function is differentiable
         loss_lhs = torch.clamp(value_lhs, min=free).mean()

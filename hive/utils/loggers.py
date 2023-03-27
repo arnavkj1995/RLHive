@@ -326,7 +326,7 @@ class WandbLogger(ScheduledLogger):
         wandb.log(metrics)
     
     def log_gif(self, name, value, prefix):
-        metrics = {f"{prefix}/{name}": wandb.Video(value, fps=4, format="gif")}
+        metrics = {f"{prefix}/{name}": wandb.Video(value, fps=10, format="gif")}
         metrics.update(
             {
                 f"{timescale}_step": self._steps[timescale]
@@ -371,6 +371,7 @@ class ChompLogger(ScheduledLogger):
         )
 
     def log_metrics(self, metrics, prefix):
+        # print (metrics)
         for name in metrics:
             metric_name = f"{prefix}/{name}"
             if metric_name not in self._log_data:

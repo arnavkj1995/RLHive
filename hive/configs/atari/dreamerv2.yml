@@ -1,0 +1,147 @@
+name: 'SingleAgentRunner'
+kwargs:
+  experiment_manager:
+    name: 'Experiment'
+    kwargs:
+      name: &run_name 'mspacman_DV2_newtest'
+      save_dir: '~/scratch/hive/experiment/atari_test_v3/'
+      saving_schedule:
+        name: 'PeriodicSchedule'
+        kwargs:
+          off_value: False
+          on_value: True
+          period: 1000000
+  train_steps: 500000
+  test_frequency: 5000
+  test_episodes: 1
+  max_steps_per_episode: 500
+
+  environment:
+    name: 'AtariEnv'
+    kwargs:
+      env_name: 'Asterix'
+      screen_size: 64
+
+  agent:
+    name: "Dreamer"
+    kwargs:
+      expl_noise: 0.0
+      train_every: 5
+      min_replay_history: 2000
+      batch_size: 16
+      batch_length: 50
+      vid_log_frequency: 5000
+      wm:
+        name: "WorldModel"
+        kwargs:
+          grad_clip: 100.0
+          loss_scales: {'kl': 1.0, 'reward': 1.0, 'observation': 1.0, 'discount': 1.0}
+          grad_heads: ['observation', 'reward', 'discount']
+          transition_net:
+            name: 'RSSM'
+            kwargs:
+              stoch: 32
+              deter: 200
+              hidden: 200
+              act: 'ELU'
+              discrete: 32
+              embed: 1536
+              std_act: 'sigmoid2'
+          decoder_net:
+            name: "DeconvNetwork"
+            kwargs:
+              channels: [96, 48, 24, 3]
+              kernel_sizes: [5, 5, 6, 6]
+              strides: 2
+          decoder_dist:
+            name: "DistLayer"
+            kwargs:
+              dist: "mse"
+          encoder_net:
+            name: "ConvNetwork"
+            kwargs:
+              channels: [48, 96, 192, 384]
+              kernel_sizes: [4, 4, 4, 4]
+              strides: 2
+          reward_net:
+            name: "MLPNetwork"
+            kwargs:
+              hidden_units: [400, 400, 400, 400]
+              activation_fn:
+                name: "ELU"
+          reward_dist:
+            name: "DistLayer"
+            kwargs:
+              dist: "mse"
+          model_optimizer_fn:
+            name: 'Adam'
+            kwargs:
+              lr: 0.0003
+              eps: 0.00001
+              weight_decay: 0.000001
+      policy:
+        name: "ActorCritic"
+        kwargs:
+          target_net_soft_update: True
+          target_net_update_fraction: 1.0
+          target_net_update_schedule:
+            name: 'PeriodicSchedule'
+            kwargs:
+              off_value: False
+              on_value: True
+              period: 100
+          actor_ent: 0.0001
+          actor_net:
+            name: "MLPNetwork"
+            kwargs:
+              hidden_units: [400, 400, 400, 400]
+              activation_fn:
+                name: "ELU"
+          actor_dist:
+            name: "DistLayer"
+            kwargs:
+              dist: 'trunc_normal'
+          actor_grad_clip: 100.0
+          critic_net:
+            name: "MLPNetwork"
+            kwargs:
+              hidden_units: [400, 400, 400, 400]
+              activation_fn:
+                name: "ELU"
+          critic_dist:
+            name: "DistLayer"
+            kwargs:
+              dist: 'mse'
+          critic_grad_clip: 100.0
+          actor_optimizer_fn:
+            name: 'Adam'
+            kwargs:
+              lr: 0.00008
+              eps: 0.00001
+              weight_decay: 0.000001
+          critic_optimizer_fn:
+            name: 'Adam'
+            kwargs:
+              lr: 0.00008
+              eps: 0.00001
+              weight_decay: 0.000001
+          actor_grad_mix: 0.1
+      replay_buffer:
+        name: 'RecurrentReplayBuffer'
+        kwargs:
+          directory: '~/scratch/hive/dv2/walkerwalk_DV2_newtest/'
+          minlen: 50
+          maxlen: 50
+          capacity: 500000
+
+  loggers:
+    -
+      name: ChompLogger
+    -
+      name: WandbLogger
+      kwargs:
+        project: 'hive'
+        name: *run_name
+        resume: "allow"
+        start_method: "fork"
+        entity: "scaling-rl"

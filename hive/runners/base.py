@@ -146,6 +146,8 @@ class Runner(ABC, Registrable):
             if self._logger.should_log("train"):
                 episode_metrics = episode_metrics.get_flat_dict()
                 self._logger.log_metrics(episode_metrics, "train")
+            else:
+                print (" Dont log metrics ")
 
             # Save experiment state
             if self._save_experiment:

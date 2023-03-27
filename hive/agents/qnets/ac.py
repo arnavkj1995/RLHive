@@ -37,7 +37,7 @@ class ActorCritic(nn.Module):
                discount_lambda: float = 0.95,
                actor_grad: str = 'dynamics',
                actor_ent: float = 2e-3,
-               actor_grad_mix: float = 1.0,
+               actor_grad_mix: float = 1.0
               ) -> None:
     super().__init__()
 
@@ -91,12 +91,13 @@ class ActorCritic(nn.Module):
     # training the action that led into the first step anyway, so we can use
     # them to scale the whole sequence.
     # with tf.GradientTape() as actor_tape:
+    
+    world_model.requires_grad_(False)
     start = {k: v.detach() for k, v in start.items()}
     seq = world_model.imagine(self.actor, start, is_terminal, hor)
     reward = reward_fn(seq)
     seq["reward"] = reward
     mets1 = {}
-    # print (" After applying reward function: ", reward)
     # seq['reward'], mets1 = self.rewnorm(reward)
     # mets1 = {f'reward_{k}': v for k, v in mets1.items()}
     target, mets2 = self.target(seq)
@@ -104,17 +105,14 @@ class ActorCritic(nn.Module):
     
     self.actor_opt.zero_grad()
     actor_loss.backward()
+    
     if self._actor_grad_clip is not None:
       torch.nn.utils.clip_grad_value_(
           self.actor.parameters(), self._actor_grad_clip
       )
-    import ipdb
-    ipdb.set_trace()
-    for param in self.actor.parameters():
-      print (param.grad)
+    
     self.actor_opt.step()
-
-    # with tf.GradientTape() as critic_tape:
+    
     critic_loss, mets4 = self.critic_loss(seq, target)
     self.critic_opt.zero_grad()
     critic_loss.backward()
@@ -122,10 +120,10 @@ class ActorCritic(nn.Module):
       torch.nn.utils.clip_grad_value_(
           self.critic.parameters(), self._critic_grad_clip
       )
+    
     self.critic_opt.step()
-    ipdb.set_trace()
-    for param in self.actor.parameters():
-      print (param.grad)
+    # for param in self.actor.parameters():
+    #   print (param.grad)
     
     if self._target_net_update_schedule.update():
       self._update_target()
@@ -133,6 +131,7 @@ class ActorCritic(nn.Module):
     # metrics.update(self.actor_opt(actor_tape, actor_loss, self.actor))
     # metrics.update(self.critic_opt(critic_tape, critic_loss, self.critic))
     metrics.update(**mets1, **mets2, **mets3, **mets4)
+    world_model.requires_grad_(True)
     return metrics
 
   def _update_target(self):
@@ -168,11 +167,12 @@ class ActorCritic(nn.Module):
     # value prediction and one because the corresponding action does not lead
     # anywhere anymore. One target is lost at the start of the trajectory
     # because the initial state comes from the replay buffer.
-    policy = self.actor(seq['feat'][:-2])
+    policy = self.actor(seq['feat'][:-2].detach())
 
     if self._actor_grad == 'dynamics':
       objective = target[1:]
     elif self.actor_grad == 'reinforce':
+      # FIXME- account for Independent dimension
       baseline = self._target_critic(seq['feat'][:-2]) #.mode()
       advantage = target[1:].detach() - baseline.detach()
       action = seq['action'][1:-1].detach()
@@ -181,13 +181,15 @@ class ActorCritic(nn.Module):
       baseline = self._target_critic(seq['feat'][:-2]) #.mode()
       advantage = target[1:].detach() - baseline.detach()
       objective = policy.log_prob(seq['action'][1:-1]) * advantage
-     
       objective = self._actor_grad_mix * target[1:] + (1 - self._actor_grad_mix) * objective
       metrics['actor_grad_mix'] = self._actor_grad_mix
     else:
       raise NotImplementedError(self._actor_grad)
-    ent = policy.entropy()
+    ent = policy.entropy() #.sum(axis=-1)
 
+    # print (self._actor_ent.shape, ent.shape)
+    # import ipdb
+    # ipdb.set_trace()
     objective += self._actor_ent * ent.unsqueeze(-1)
     weight = seq['weight'].detach().unsqueeze(-1)
 
@@ -206,8 +208,8 @@ class ActorCritic(nn.Module):
     dist = self.critic(seq['feat'][:-1].detach())
     target = target.detach()
     weight = seq['weight'].detach()
-    critic_loss = -(dist.log_prob(target) * weight[:-1]).mean()
-    metrics = {'critic': dist.mode.mean()}
+    critic_loss = -(dist.log_prob(target).squeeze(-1) * weight[:-1]).mean()
+    metrics = {'critic': critic_loss}
     return critic_loss, metrics
 
   def lambda_return(
@@ -231,7 +233,6 @@ class ActorCritic(nn.Module):
     pcont = pcont.unsqueeze(-1)
     inputs = reward + pcont * next_values * (1 - lambda_)
     
-    # FIXME: replace this static scan
     timesteps = list(range(reward.shape[0] - 1, -1, -1))
     
     outputs = []
@@ -258,7 +259,7 @@ class ActorCritic(nn.Module):
     reward = seq['reward']
     disc = seq['discount']
 
-    value = self._target_critic(seq['feat']).mode
+    value = self._target_critic(seq['feat']).mean
 
     # Skipping last time step because it is used for bootstrapping.
     target = self.lambda_return(
@@ -271,11 +272,11 @@ class ActorCritic(nn.Module):
     metrics['critic_target'] = target.mean()
     return target, metrics
 
-  def update_slow_target(self):
-    if self._slow_target:
-      if self._updates % self._slow_target_update == 0:
-        mix = 1.0 if self._updates == 0 else float(
-            self._slow_target_fraction)
-        for s, d in zip(self.critic.variables, self._target_critic.variables):
-          d.assign(mix * s + (1 - mix) * d)
-      self._updates.assign_add(1)
+  # def update_slow_target(self):
+  #   if self._slow_target:
+  #     if self._updates % self._slow_target_update == 0:
+  #       mix = 1.0 if self._updates == 0 else float(
+  #           self._slow_target_fraction)
+  #       for s, d in zip(self.critic.variables, self._target_critic.variables):
+  #         d.assign(mix * s + (1 - mix) * d)
+  #     self._updates.assign_add(1)

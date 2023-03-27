@@ -43,6 +43,7 @@ class MLPNetwork(nn.Module):
 
         linear_fn = partial(NoisyLinear, std_init=std_init) if noisy else nn.Linear
         modules = [linear_fn(np.prod(in_dim), hidden_units[0]), activation_fn()]
+
         for i in range(len(hidden_units) - 1):
             modules.append(linear_fn(hidden_units[i], hidden_units[i + 1]))
             modules.append(activation_fn())

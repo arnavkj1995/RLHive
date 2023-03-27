@@ -62,7 +62,11 @@ class WorldModel(nn.Module):
     self.heads = {}
 
     # Add the deconv network
-    state_dim = self.rssm._deter + self.rssm._stoch
+    if self.rssm._discrete:
+      state_dim = self.rssm._deter + self.rssm._stoch * self.rssm._discrete
+    else:
+      state_dim = self.rssm._deter + self.rssm._stoch
+      
     decoder_network = decoder_net(state_dim)
     decoder_dist_fn = decoder_dist(shapes['image'], None)
     self.heads['observation'] = nn.Sequential(decoder_network, decoder_dist_fn).to(self._device)
@@ -95,7 +99,24 @@ class WorldModel(nn.Module):
       torch.nn.utils.clip_grad_value_(
           self._model_parameters, self._grad_clip
       )
-    
+
+    # print (" Printing Grads ")
+    # try:
+    #   for name, param in self.heads['reward'].named_parameters():
+    #     print (name, param.grad.mean())
+      
+    #   for name, param in self.heads['observation'].named_parameters():
+    #     print (name, param.grad.mean())
+      
+    #   for name, param in self.encoder.named_parameters():
+    #     print (name, param.grad.mean())
+      
+    #   for name, param in self.rssm.named_parameters():
+    #     if param.grad is not None:
+    #       print (name, param.grad.mean())
+    # except:
+    #   pass
+
     self._model_optimizer.step()
     # modules = [self.encoder, self.rssm, *self.heads.values()]
     # metrics.update(self.model_opt(model_tape, model_loss, modules))
@@ -113,7 +134,7 @@ class WorldModel(nn.Module):
         embed, data['action'], data['is_first'], state)
     
     # FIXME: Add the config params for the KL Loss
-    kl_loss, kl_value = self.rssm.kl_loss(post, prior, forward=False, balance=0.8, free=0.00001, free_avg=False) # **self.config.kl)
+    kl_loss, kl_value = self.rssm.kl_loss(post, prior, forward=False, balance=0.8, free=1.0, free_avg=True) # **self.config.kl)
     assert len(kl_loss.shape) == 0
     likes = {}
     losses = {'kl': kl_loss}
@@ -130,6 +151,9 @@ class WorldModel(nn.Module):
       for key, dist in dists.items():
         like = dist.log_prob(data[key])
         likes[key] = like
+        if key == 'observation':
+          like = like.sum(axis=(-1, -2, -3))
+        likes[key] = like
         losses[key] = -like.mean()
 
     model_loss = sum(
@@ -144,6 +168,7 @@ class WorldModel(nn.Module):
     metrics['prior_ent'] = self.rssm.get_dist(prior).entropy().mean()
     metrics['post_ent'] = self.rssm.get_dist(post).entropy().mean()
     last_state = {k: v[:, -1] for k, v in post.items()}
+
     return model_loss, last_state, outs, metrics
 
   def imagine(self, policy, start, is_terminal, horizon):
@@ -151,9 +176,10 @@ class WorldModel(nn.Module):
     start = {k: flatten(v) for k, v in start.items()}
     start['feat'] = self.rssm.get_feat(start)
     # print (" After get feat function ", policy(start['feat']).mode.shape)
-    start['action'] = torch.zeros_like(policy(start['feat']).mode)
+    start['action'] = torch.zeros_like(policy(start['feat']).mean)
     seq = {k: [v] for k, v in start.items()}
     for _ in range(horizon):
+      # action = policy(seq['feat'][-1]).rsample()
       action = policy(seq['feat'][-1].detach()).rsample()
       state = self.rssm.img_step({k: v[-1] for k, v in seq.items()}, action)
       feat = self.rssm.get_feat(state)
@@ -198,17 +224,26 @@ class WorldModel(nn.Module):
 
 #   @tf.function
   def video_pred(self, data, key):
-    decoder = self.heads['decoder']
-    truth = data[key][:6] + 0.5
-    embed = self.encoder(data)
+    decoder = self.heads['observation']
+
+    truth = data[key][:6]
+    obs = truth.view(-1, *truth.shape[2:])
+    embed = self.encoder(obs)
+    embed = embed.view(truth.shape[0], truth.shape[1], -1)
+
+    truth = truth + 0.5
     states, _ = self.rssm.observe(
         embed[:6, :5], data['action'][:6, :5], data['is_first'][:6, :5])
-    recon = decoder(self.rssm.get_feat(states))[key].mode()[:6]
+    recon = decoder(self.rssm.get_feat(states)).mean[:6]
     init = {k: v[:, -1] for k, v in states.items()}
     prior = self.rssm.imagine(data['action'][:6, 5:], init)
-    openl = decoder(self.rssm.get_feat(prior))[key].mode()
-    model = torch.concat([recon[:, :5] + 0.5, openl + 0.5], 1)
+    openl = decoder(self.rssm.get_feat(prior)).mean
+    model = torch.cat([recon[:, :5] + 0.5, openl + 0.5], 1)
     error = (model - truth + 1) / 2
-    video = torch.concat([truth, model, error], 2)
-    B, T, H, W, C = video.shape
-    return video.transpose((1, 2, 0, 3, 4)).reshape((T, H, B * W, C))
+    video = torch.cat([truth, model, error], 3)
+
+    B, T, C, H, W = video.shape
+    # import ipdb
+    # ipdb.set_trace()
+    # print (" Inside video pred function" , video.shape)
+    return video.permute([1, 2, 3, 0, 4]).reshape((T, C, H, B * W)).detach().cpu().numpy()

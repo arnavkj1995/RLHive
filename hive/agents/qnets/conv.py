@@ -77,7 +77,7 @@ class ConvNetwork(nn.Module):
                         padding=paddings[i],
                     )
                 )
-                conv_seq.append(torch.nn.ReLU())
+                conv_seq.append(torch.nn.ELU())
             self.conv = torch.nn.Sequential(*conv_seq)
         else:
             self.conv = torch.nn.Identity()
@@ -97,7 +97,7 @@ class ConvNetwork(nn.Module):
         elif len(x.shape) == 5:
             x = x.reshape(x.size(0), -1, x.size(-2), x.size(-1))
         x = x.float()
-        x = x / self._normalization_factor
+        # x = x / self._normalization_factor
         x = self.conv(x)
         x = self.mlp(x)
         return x
